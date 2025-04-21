@@ -186,21 +186,19 @@ def merge_background_audio(audio: ffmpeg, reddit_id: str):
         return merged_audio  # Return merged audio
 
 
-def make_final_video(number_of_comments, length, reddit_object, bg_config):
+def make_final_video(tts_audio_path: str, reddit_object: dict):
     """
     Combines audio, video, and subtitles into the final video.
-    Uses predefined paths for video, audio, and subtitles.
+    Ensures the video length matches the TTS audio length.
     """
     reddit_id = id(reddit_object)
     temp_dir = f"assets/temp/{reddit_id}/"
-    subtitles_path = f"assets/backgrounds/subtitles/subtitle{reddit_id}.srt"  # Updated path for subtitles
-    output_path = f"{temp_dir}final_video.mp4"  # Path to the final video
+    subtitles_path = "assets/backgrounds/subtitles/subtitle.srt"  # Use the subtitle file
+    output_path = f"{temp_dir}final_video.mp4"
 
-    # Use predefined paths for video and audio
-    video_path = "assets/backgrounds/video/bbswitzer-parkour.mp4"  # Path to the background video
-    audio_path = "assets/backgrounds/audio/Super Lofi World-lofi.mp3"  # Path to the background audio
+    video_path = f"{temp_dir}background.mp4"
+    audio_path = f"{temp_dir}background.mp3"
 
-    # Check if required files exist
     if not os.path.exists(video_path):
         raise FileNotFoundError(f"Video file not found: {video_path}")
     if not os.path.exists(audio_path):
@@ -208,16 +206,24 @@ def make_final_video(number_of_comments, length, reddit_object, bg_config):
     if not os.path.exists(subtitles_path):
         raise FileNotFoundError(f"Subtitles file not found: {subtitles_path}")
 
-    # Use FFmpeg to combine video, audio, and subtitles
-    subprocess.run([
-        "ffmpeg",
-        "-i", video_path,  # Input video
-        "-i", audio_path,  # Input audio
-        "-vf", f"subtitles={subtitles_path}",  # Add subtitles
-        "-c:v", "libx264",  # Video codec
-        "-c:a", "aac",  # Audio codec
-        "-strict", "experimental",  # Allow experimental features
-        output_path  # Output file
-    ], check=True)
+    # Get the length of the TTS audio
+    tts_audio = AudioSegment.from_file(tts_audio_path)
+    tts_length = tts_audio.duration_seconds  # Length of TTS audio in seconds
+
+    try:
+        subprocess.run([
+            "ffmpeg",
+            "-i", f"{video_path}",
+            "-i", f"{audio_path}",
+            "-vf", f"subtitles='{subtitles_path}',scale=1080:1920:force_original_aspect_ratio=increase,crop=1080:1920",
+            "-t", str(tts_length),  # Set the duration of the final video to match the TTS length
+            "-c:v", "libx264",
+            "-c:a", "aac",
+            "-strict", "experimental",
+            output_path
+        ], check=True)
+    except subprocess.CalledProcessError as e:
+        print(f"FFmpeg failed with error: {e}")
+        raise
 
     print(f"Final video created at {output_path}")

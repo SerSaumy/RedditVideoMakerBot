@@ -1,6 +1,7 @@
 import json
 import random
 import re
+import os
 from pathlib import Path
 from random import randrange
 from typing import Any, Dict, Tuple
@@ -8,6 +9,7 @@ from typing import Any, Dict, Tuple
 import yt_dlp
 from moviepy.editor import AudioFileClip, VideoFileClip
 from moviepy.video.io.ffmpeg_tools import ffmpeg_extract_subclip
+from pydub import AudioSegment
 
 from utils import settings
 from utils.console import print_step, print_substep
@@ -120,48 +122,69 @@ def download_background_audio(background_config: Tuple[str, str, str]):
     print_substep("Background audio downloaded successfully! 🎉", style="bold green")
 
 
-def chop_background(background_config: Dict[str, Tuple], video_length: int, reddit_object: dict):
-    """Generates the background audio and footage to be used in the video and writes it to assets/temp/background.mp3 and assets/temp/background.mp4
-
-    Args:
-        background_config (Dict[str,Tuple]]) : Current background configuration
-        video_length (int): Length of the clip where the background footage is to be taken out of
+def chop_background(bg_config: Dict[str, Any], tts_audio_path: str, reddit_object: dict):
     """
-    id = re.sub(r"[^\w\s-]", "", reddit_object["thread_id"])
+    Randomly selects a video and audio from the respective directories.
+    Adjusts the duration to match the TTS audio length.
+    """
+    reddit_id = id(reddit_object)
 
-    if settings.config["settings"]["background"][f"background_audio_volume"] == 0:
-        print_step("Volume was set to 0. Skipping background audio creation . . .")
-    else:
-        print_step("Finding a spot in the backgrounds audio to chop...✂️")
-        audio_choice = f"{background_config['audio'][2]}-{background_config['audio'][1]}"
-        background_audio = AudioFileClip(f"assets/backgrounds/audio/{audio_choice}")
-        start_time_audio, end_time_audio = get_start_and_end_times(
-            video_length, background_audio.duration
-        )
-        background_audio = background_audio.subclip(start_time_audio, end_time_audio)
-        background_audio.write_audiofile(f"assets/temp/{id}/background.mp3")
+    # Get the length of the TTS audio
+    tts_audio = AudioSegment.from_file(tts_audio_path)
+    tts_length = tts_audio.duration_seconds  # Length of TTS audio in seconds
 
-    print_step("Finding a spot in the backgrounds video to chop...✂️")
-    video_choice = f"{background_config['video'][2]}-{background_config['video'][1]}"
-    background_video = VideoFileClip(f"assets/backgrounds/video/{video_choice}")
-    start_time_video, end_time_video = get_start_and_end_times(
-        video_length, background_video.duration
-    )
-    # Extract video subclip
-    try:
-        ffmpeg_extract_subclip(
-            f"assets/backgrounds/video/{video_choice}",
-            start_time_video,
-            end_time_video,
-            targetname=f"assets/temp/{id}/background.mp4",
-        )
-    except (OSError, IOError):  # ffmpeg issue see #348
-        print_substep("FFMPEG issue. Trying again...")
-        with VideoFileClip(f"assets/backgrounds/video/{video_choice}") as video:
-            new = video.subclip(start_time_video, end_time_video)
-            new.write_videofile(f"assets/temp/{id}/background.mp4")
-    print_substep("Background video chopped successfully!", style="bold green")
-    return background_config["video"][2]
+    # Randomly select a video from the assets/backgrounds/video directory
+    video_dir = "assets/backgrounds/video"
+    video_files = [f for f in os.listdir(video_dir) if f.endswith(".mp4")]
+    if not video_files:
+        raise FileNotFoundError(f"No video files found in {video_dir}")
+    video_choice = random.choice(video_files)  # Randomly select a video file
+
+    # Ensure the output directory exists
+    output_dir = f"assets/temp/{reddit_id}/"
+    Path(output_dir).mkdir(parents=True, exist_ok=True)
+
+    # Process background video
+    with VideoFileClip(f"{video_dir}/{video_choice}") as video:
+        max_start_time = max(0, video.duration - tts_length)
+        start_time_video = random.uniform(0, max_start_time)
+        end_time_video = start_time_video + tts_length
+        new_video = video.subclip(start_time_video, end_time_video)
+        new_video.write_videofile(f"{output_dir}background.mp4", codec="libx264")
+    print_substep(f"Background video '{video_choice}' chopped successfully!", style="bold green")
+
+    # Randomly select an audio file from the assets/backgrounds/audio directory
+    audio_dir = "assets/backgrounds/audio"
+    audio_files = [f for f in os.listdir(audio_dir) if f.endswith(".mp3")]
+    if not audio_files:
+        raise FileNotFoundError(f"No audio files found in {audio_dir}")
+    audio_choice = random.choice(audio_files)  # Randomly select an audio file
+
+    # Process background audio
+    with AudioFileClip(f"{audio_dir}/{audio_choice}") as audio:
+        max_start_time = max(0, audio.duration - tts_length)
+        start_time_audio = random.uniform(0, max_start_time)
+        end_time_audio = start_time_audio + tts_length
+        new_audio = audio.subclip(start_time_audio, end_time_audio)
+        new_audio.write_audiofile(f"{output_dir}background.mp3")
+    print_substep(f"Background audio '{audio_choice}' chopped successfully!", style="bold green")
+
+
+def mix_audio(tts_audio_path: str, background_audio_path: str, output_path: str):
+    """
+    Mixes TTS audio with background audio.
+    """
+    tts_audio = AudioSegment.from_file(tts_audio_path)
+    background_audio = AudioSegment.from_file(background_audio_path).set_frame_rate(tts_audio.frame_rate).set_channels(tts_audio.channels)
+
+    # Adjust background audio volume
+    background_audio = background_audio - 15  # Reduce background audio volume
+
+    # Overlay TTS audio on background audio
+    mixed_audio = background_audio.overlay(tts_audio)
+
+    # Export the mixed audio
+    mixed_audio.export(output_path, format="mp3")
 
 
 # Create a tuple for downloads background (background_audio_options, background_video_options)

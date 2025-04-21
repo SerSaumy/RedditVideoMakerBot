@@ -51,8 +51,10 @@ def main(POST_ID=None) -> None:
     temp_dir = f"assets/temp/{redditid}/"
     Path(temp_dir).mkdir(parents=True, exist_ok=True)  # Ensure the temp directory exists
 
+    # Generate TTS audio and ensure it's under 1 minute
     length, number_of_comments = save_text_to_mp3(reddit_object)
-    length = math.ceil(length)
+    length = min(math.ceil(length), 60)  # Limit TTS duration to 60 seconds
+    print(f"TTS duration: {length} seconds")
 
     # Save subtitles in the new directory with the new naming convention
     subtitles_path = f"assets/backgrounds/subtitles/subtitle{redditid}.srt"
@@ -60,14 +62,24 @@ def main(POST_ID=None) -> None:
     print(f"Generating subtitles at: {subtitles_path}")  # Debugging line
     generate_subtitles(reddit_object, subtitles_path)
 
+    # Ensure subtitles are created before proceeding
+    if not Path(subtitles_path).exists():
+        raise FileNotFoundError(f"Subtitles file not found: {subtitles_path}")
+    print(f"Subtitles successfully created at: {subtitles_path}")
+
+    # Pass the same subtitles path to the video creation process
     bg_config = {
         "video": get_background_config("video"),
         "audio": get_background_config("audio"),
+        "subtitles": subtitles_path,  # Include the subtitles path in the config
     }
     download_background_video(bg_config["video"])
     download_background_audio(bg_config["audio"])
-    chop_background(bg_config, length, reddit_object)
-    make_final_video(number_of_comments, length, reddit_object, bg_config)
+
+    # Path to the TTS audio
+    tts_audio_path = f"assets/temp/{redditid}/tts_audio.mp3"
+    chop_background(bg_config, tts_audio_path, reddit_object)  # Pass TTS audio path
+    make_final_video(tts_audio_path, reddit_object)  # Pass TTS audio path
 
 
 def run_many(times) -> None:
