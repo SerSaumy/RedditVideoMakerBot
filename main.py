@@ -22,8 +22,8 @@ from video_creation.background import (
     get_background_config,
 )
 from video_creation.final_video import make_final_video
-from video_creation.screenshot_downloader import get_screenshots_of_reddit_posts
 from video_creation.voices import save_text_to_mp3
+from video_creation.subtitle_generator import generate_subtitles
 
 __VERSION__ = "3.3.0"
 
@@ -46,10 +46,20 @@ checkversion(__VERSION__)
 def main(POST_ID=None) -> None:
     global redditid, reddit_object
     reddit_object = get_subreddit_threads(POST_ID)
+    print(f"Reddit object: {reddit_object}")  # Debugging line
     redditid = id(reddit_object)
+    temp_dir = f"assets/temp/{redditid}/"
+    Path(temp_dir).mkdir(parents=True, exist_ok=True)  # Ensure the temp directory exists
+
     length, number_of_comments = save_text_to_mp3(reddit_object)
     length = math.ceil(length)
-    get_screenshots_of_reddit_posts(reddit_object, number_of_comments)
+
+    # Save subtitles in the new directory with the new naming convention
+    subtitles_path = f"assets/backgrounds/subtitles/subtitle{redditid}.srt"
+    Path("assets/backgrounds/subtitles").mkdir(parents=True, exist_ok=True)  # Ensure the subtitles directory exists
+    print(f"Generating subtitles at: {subtitles_path}")  # Debugging line
+    generate_subtitles(reddit_object, subtitles_path)
+
     bg_config = {
         "video": get_background_config("video"),
         "audio": get_background_config("audio"),
